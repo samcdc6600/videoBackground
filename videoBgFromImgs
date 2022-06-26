@@ -6,6 +6,7 @@
 ECHO_PROG="/bin/echo"
 SLEEP_PROG="/bin/sleep"
 FEH_PROG="/usr/local/bin/feh"
+BC_PROG="/usr/bin/bc"
 
 
 ################################### Constants ##################################
@@ -14,6 +15,52 @@ TRUE="1"
 FALSE="0"
 FRAME_FILE_NAME_PREFIX="videoBackgroundFrame_"
 FRAME_FILE_NAME_POSTFIX=".jpg"
+FRAME_RATE="24"
+# Should be calculated from original video frame rate.
+TARGET_INTER_FRAME_TIME="0.0416"
+INTER_FRAME_TIME=$TARGET_INTER_FRAME_TIME
+ADJUST_PERF="120"
+FRAME_SKIP="0"
+
+
+# Where $1 should be the time the last time this function was called and $2
+# should be the current time.
+# If play back is too slow we reduce the inter frame sleep time. If it goes
+# below 0, then we set it back to TARGET_INTER_FRAME_TIME and increments
+# FRAME_SKIP. If it's too high we essentially do the opposite, except we don't
+# decrease FRAME_SKIP because it would only have been reduced if
+# INTER_FRAME_TIME was already reduced below 0.
+adjustPerf()
+{
+    TIME_DELTA=`expr "$2" - "$1"`
+    EXPECTED_TIME=`expr "$ADJUST_PERF" / "$FRAME_RATE"`
+
+    $ECHO_PROG "Expected ${EXPECTED_TIME}"
+    $ECHO_PROG "Found ${TIME_DELTA}"
+    echo ""
+
+    if [ $EXPECTED_TIME -ne $TIME_DELTA ]
+    then
+	if [ $EXPECTED_TIME -lt $TIME_DELTA ]
+	then
+	    # We're running too slow :'(
+	    #$ECHO_PROG `$ECHO_PROG "scale = 4; $TIME_DELTA / $EXPECTED_TIME - 1" | $BC_PROG`
+	    INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; ${INTER_FRAME_TIME} -0.010" | $BC_PROG`
+	    $ECHO_PROG "Reducing inter_frame_time: ${INTER_FRAME_TIME}"
+	    if [ $FALSE -eq `$ECHO_PROG "${INTER_FRAME_TIME} < 0" | $BC_PROG` ]
+	    then
+		$ECHO_PROG "cats `$ECHO_PROG "${INTER_FRAME_TIME} < 0" | $BC_PROG`"
+		$ECHO_PROG "Inter_frame_time below 0: ${FRAME_SKIP}"
+		INTER_FRAME_TIME=$TARGET_INTER_FRAME_TIME
+		FRAME_SKIP=$((FRAME_SKIP+1))
+	    fi
+	else
+	    $ECHO_PROG "Increasing inter_frame_time: ${INTER_FRAME_TIME}"
+	    INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; ${INTER_FRAME_TIME} +0.010" | $BC_PROG`
+	    # We're running too fast :|
+	fi
+    fi
+}
 
 
 main()
@@ -22,29 +69,35 @@ main()
     FRAME_INDEX="1"
     CURRENT_FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
 ${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
-    TARGET_INTER_FRAME_TIME="0.041666666"
+    OLD_FRAME_FPS_MEASURE_TIME="$(date +%s)"
+    NEW_FRAME_FPS_MEASURE_TIME=$OLD_FRAME_FPS_MEASURE_TIME
 
 
-    $ECHO_PROG $CURRENT_FRAME_PATH
-
-    START_TIME=`echo $(($(date +%s%N)/1000000))`
-    echo $START_TIME
-
-#     while [ -f $CURRENT_FRAME_PATH ]
-#     do
-# 	$SLEEP_PROG $INTER_FRAME_TIME
-
-#         # $FEH_PROG --bg-max $CURRENT_FRAME_PATH
+    while [ -f $CURRENT_FRAME_PATH ]
+    do
+	if [ `expr $FRAME_INDEX % $ADJUST_PERF` -eq 0 ]
+	then
+	    OLD_FRAME_FPS_MEASURE_TIME=$NEW_FRAME_FPS_MEASURE_TIME
+	    NEW_FRAME_FPS_MEASURE_TIME="$(date +%s)"
+	    adjustPerf "$OLD_FRAME_FPS_MEASURE_TIME" \
+		       "$NEW_FRAME_FPS_MEASURE_TIME"
+	fi
 	
-# 	CURRENT_FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
-# ${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
-# 	FRAME_INDEX=$((FRAME_INDEX+1))
+	$SLEEP_PROG $INTER_FRAME_TIME
+	# $SLEEP_PROG 0.032
 
-# 	# if [ "$FRAME_INDEX" -eq "24" ]
-# 	# then
-# 	#     exit
-# 	# fi	
-#     done
+        $FEH_PROG --bg-max $CURRENT_FRAME_PATH
+	
+	CURRENT_FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
+${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
+	FRAME_INDEX=`expr $FRAME_INDEX + $FRAME_SKIP + 1`
+
+	# if [ "$FRAME_INDEX" -gt "386" ]
+	if [ "$FRAME_INDEX" -gt "3072" ]
+	then
+	    exit
+	fi	
+    done
 }
 
 
