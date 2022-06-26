@@ -1,0 +1,51 @@
+#!/bin/sh
+
+
+################################# Program Paths ################################
+################################################################################
+ECHO_PROG="/bin/echo"
+SLEEP_PROG="/bin/sleep"
+FEH_PROG="/usr/local/bin/feh"
+
+
+################################### Constants ##################################
+################################################################################
+TRUE="1"
+FALSE="0"
+FRAME_FILE_NAME_PREFIX="videoBackgroundFrame_"
+FRAME_FILE_NAME_POSTFIX=".jpg"
+
+
+main()
+{
+    FRAME_DESTINATION_DIR="/tmp/videoBackgroundFrames/"
+    FRAME_INDEX="1"
+    CURRENT_FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
+${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
+    TARGET_INTER_FRAME_TIME="0.041666666"
+
+
+    $ECHO_PROG $CURRENT_FRAME_PATH
+
+    START_TIME=`echo $(($(date +%s%N)/1000000))`
+    echo $START_TIME
+
+#     while [ -f $CURRENT_FRAME_PATH ]
+#     do
+# 	$SLEEP_PROG $INTER_FRAME_TIME
+
+#         # $FEH_PROG --bg-max $CURRENT_FRAME_PATH
+	
+# 	CURRENT_FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
+# ${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
+# 	FRAME_INDEX=$((FRAME_INDEX+1))
+
+# 	# if [ "$FRAME_INDEX" -eq "24" ]
+# 	# then
+# 	#     exit
+# 	# fi	
+#     done
+}
+
+
+main

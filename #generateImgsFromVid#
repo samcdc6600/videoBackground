@@ -1,0 +1,107 @@
+#!/bin/sh
+
+
+################################# Program Paths ################################
+################################################################################
+FFMPEG_PROG="/usr/local/bin/ffmpeg"
+GREP_PROG="/usr/bin/grep"
+CUT_PROG="/usr/bin/cut"
+SED_PROG="/usr/bin/sed"
+AWK_PROG="/usr/bin/awk"
+ECHO_PROG="/bin/echo"
+MKDIR_PROG="/bin/mkdir"
+RM_PROG="/bin/rm"
+FFPROBE_PROG="/usr/local/bin/ffprobe"
+
+
+################################### Constants ##################################
+################################################################################
+TRUE="1"
+FALSE="0"
+FRAME_FILE_NAME_PREFIX="videoBackgroundFrame_"
+FRAME_FILE_NAME_POSTFIX=".jpg"
+
+
+getVideoRunTime()
+{
+    RUNTIME=$($FFMPEG_PROG -i "$1" 2>&1 | $GREP_PROG "Duration"| \
+    $CUT_PROG -d ' ' -f 4 | $SED_PROG s/,// | $SED_PROG 's@\..*@@g' | \
+    $AWK_PROG '{ split($1, A, ":"); split(A[3], B, "."); \
+print 3600*A[1] + 60*A[2] + B[1] }')
+    $ECHO_PROG "$RUNTIME"
+}
+
+
+
+# Where $1 should be the video file path, $2 should be the destination path for
+# the output file and $3 should be the frame number.
+getVideoFrameAtTime()
+{
+    $FFMPEG_PROG -y -i "$1" -vf "select=eq(n\,$3)" -vframes 1 "$2"
+}
+
+
+# Where $1 should be the path to a video file. Returns the number of frames in
+# the video.
+getFrameCount()
+{
+    FRAMES_STR="$($FFPROBE_PROG -v error -select_streams v:0 -count_frames \
+-show_entries stream=nb_read_frames "${1}")" 2> /dev/null
+
+    FRAMES_NUM_INDEX_START="$($ECHO_PROG "$FRAMES_STR" | $GREP_PROG -b -o "_frames=" | \
+    $AWK_PROG 'BEGIN {FS=":"}{print $1}')"
+
+    FRAMES_NUM_INDEX_END="$($ECHO_PROG "$FRAMES_STR" | $GREP_PROG -F -b -o "[/S" | \
+$AWK_PROG 'BEGIN {FS=":"}{print $1}')"
+
+    FRAMES_NUM="$($ECHO_PROG "$FRAMES_STR" | \
+$CUT_PROG -c "$FRAMES_NUM_INDEX_START"-"$FRAMES_NUM_INDEX_END")"
+    $ECHO_PROG "$FRAMES_NUM"
+}
+
+
+makeDirectory()
+{
+    RET=$TRUE
+    
+    
+    if ! $MKDIR_PROG "$1" 2> /dev/null
+    then
+	RET=$FALSE
+    fi
+
+    $ECHO_PROG "$RET"
+}
+
+
+main()
+{
+    FRAME_DESTINATION_DIR="/tmp/videoBackgroundFrames/"
+    VIDEO_FILE_PATH="/home/crayxmp/storageOld/Media/video/Series/Sabrina The \
+Teenage Witch/Season 1/Sabrina, The Teenage Witch [01-02] Bundt friday [Dvdrip SAiNTS].avi"
+    AT_FRAME="0"
+    RUNTIME="$(getVideoRunTime "${VIDEO_FILE_PATH}")"
+    FRAME_COUNT="$(getFrameCount "${VIDEO_FILE_PATH}")"
+
+    # Make sure dir is gone before we try to create it
+    # $RM_PROG -r "$FRAME_DESTINATION_DIR"
+    
+    if [ "$(makeDirectory ${FRAME_DESTINATION_DIR})" -eq "$TRUE" ]
+    then
+    # getVideoFrameAtTime "${VIDEO_FILE_PATH}" "00:00:25"
+
+        while [ "${AT_FRAME}" -le "${FRAME_COUNT}" ]
+        do
+            FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
+${AT_FRAME}${FRAME_FILE_NAME_POSTFIX}"
+	    getVideoFrameAtTime "$VIDEO_FILE_PATH" "$FRAME_PATH" "$AT_FRAME"
+
+	    AT_FRAME=$((AT_FRAME+1))
+        done
+    else
+    	$ECHO_PROG "Error: couldn't create directory \"${FRAME_DESTINATION_DIR}\"."
+    fi
+}
+
+
+main
