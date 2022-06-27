@@ -19,7 +19,14 @@ FRAME_RATE="24"
 # Should be calculated from original video frame rate.
 TARGET_INTER_FRAME_TIME="0.0416"
 INTER_FRAME_TIME=$TARGET_INTER_FRAME_TIME
-ADJUST_PERF="120"
+# We set INTER_FRAME_TIME to the division of TARGET_INTER_FRAME_TIME by this
+# number when we drop a frame.
+TARGET_INTER_FRAME_TIME_DIVISION="10"
+# When INTER_FRAME_TIME is greater then this value we un-drop frames if we are
+# dropping any.
+UN_DROP_FRAME="0.0100"
+ADJUST_PERF="192"
+MAX_FRAME_SKIP="30"
 FRAME_SKIP="0"
 
 
@@ -32,32 +39,95 @@ FRAME_SKIP="0"
 # INTER_FRAME_TIME was already reduced below 0.
 adjustPerf()
 {
+    INTER_FRAME_STEP_2="0.0300"
+    INTER_FRAME_STEP_1="0.0020"
+    INTER_FRAME_STEP_0="0.0009"
+    DELTA_IDEAL="1"
+    NEG_DELTA_FROM_IDEAL_STEP_1="0.5"
+    NEG_DELTA_FROM_IDEAL_STEP_0="0.75"
+    POS_DELTA_FROM_IDEAL_STEP_1="2"
+    POS_DELTA_FROM_IDEAL_STEP_0="1.333333333"
+    
     TIME_DELTA=`expr "$2" - "$1"`
     EXPECTED_TIME=`expr "$ADJUST_PERF" / "$FRAME_RATE"`
 
-    $ECHO_PROG "Expected ${EXPECTED_TIME}"
-    $ECHO_PROG "Found ${TIME_DELTA}"
-    echo ""
+        echo "======================"
 
-    if [ $EXPECTED_TIME -ne $TIME_DELTA ]
+    $ECHO_PROG "Expected ${EXPECTED_TIME}, Found ${TIME_DELTA}, \
+skip ${FRAME_SKIP}, inter frame ${INTER_FRAME_TIME}, adjust perf ${ADJUST_PERF}"
+
+
+    if [ $EXPECTED_TIME -ne $((TIME_DELTA-1)) ] && \
+	   [ $EXPECTED_TIME -ne $((TIME_DELTAT)) ] && \
+	   [ $EXPECTED_TIME -ne $((TIME_DELTAT+1)) ]
     then
+	# Calculate value to change INTER_FRAME_TIME by.
+	DELTA_FROM_IDEAL=`${ECHO_PROG} "scale = 4; ${TIME_DELTA} / ${EXPECTED_TIME}" | $BC_PROG`
 	if [ $EXPECTED_TIME -lt $TIME_DELTA ]
 	then
 	    # We're running too slow :'(
-	    #$ECHO_PROG `$ECHO_PROG "scale = 4; $TIME_DELTA / $EXPECTED_TIME - 1" | $BC_PROG`
-	    INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; ${INTER_FRAME_TIME} -0.010" | $BC_PROG`
-	    $ECHO_PROG "Reducing inter_frame_time: ${INTER_FRAME_TIME}"
-	    if [ $FALSE -eq `$ECHO_PROG "${INTER_FRAME_TIME} < 0" | $BC_PROG` ]
+	    # Most likely case (hopefully).
+	    # Set the amount to change the inter frame time by based on the
+	    # delta from the ideal time.
+	    if [ $TRUE -eq `$ECHO_PROG "${DELTA_FROM_IDEAL} < \
+${POS_DELTA_FROM_IDEAL_STEP_0}" | $BC_PROG` ]
 	    then
-		$ECHO_PROG "cats `$ECHO_PROG "${INTER_FRAME_TIME} < 0" | $BC_PROG`"
-		$ECHO_PROG "Inter_frame_time below 0: ${FRAME_SKIP}"
-		INTER_FRAME_TIME=$TARGET_INTER_FRAME_TIME
-		FRAME_SKIP=$((FRAME_SKIP+1))
+		INTER_FRAME_DELTA=$INTER_FRAME_STEP_0
+	    else
+		if [ $TRUE -eq `$ECHO_PROG "${DELTA_FROM_IDEAL} < \
+${POS_DELTA_FROM_IDEAL_STEP_1}" | $BC_PROG` ]
+		then
+		    INTER_FRAME_DELTA=$INTER_FRAME_STEP_1
+		else
+		    INTER_FRAME_DELTA=$INTER_FRAME_STEP_2
+		fi
+	    fi
+	    
+	    INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; ${INTER_FRAME_TIME} -\
+$INTER_FRAME_DELTA" | $BC_PROG`
+
+	    # If inter frame time has dropped below 0 we reset it to some
+	    # fraction of target inter frame time and start dropping an extra frame.
+	    if [ $TRUE -eq `$ECHO_PROG "${INTER_FRAME_TIME} < 0.0" | $BC_PROG` ]
+	    then
+		INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; \
+${TARGET_INTER_FRAME_TIME} / ${TARGET_INTER_FRAME_TIME_DIVISION}" | $BC_PROG`
+
+		if [ $FRAME_SKIP -eq "0" ]
+		then
+		    FRAME_SKIP=$MAX_FRAME_SKIP
+		else
+		    if [ $FRAME_SKIP -ne "1" ]
+		    then
+			FRAME_SKIP=$((FRAME_SKIP-1))
+		    fi
+		fi
 	    fi
 	else
-	    $ECHO_PROG "Increasing inter_frame_time: ${INTER_FRAME_TIME}"
-	    INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; ${INTER_FRAME_TIME} +0.010" | $BC_PROG`
 	    # We're running too fast :|
+	    # Most likely case (hopefully).
+	    if [ $TRUE -eq `$ECHO_PROG "${DELTA_FROM_IDEAL} < \
+${NEG_DELTA_FROM_IDEAL_STEP_0}" | $BC_PROG` ]
+	    then
+		INTER_FRAME_DELTA=$INTER_FRAME_STEP_0
+	    else
+		if [ $TRUE -eq `$ECHO_PROG "${DELTA_FROM_IDEAL} < \
+${NEG_DELTA_FROM_IDEAL_STEP_1}" | $BC_PROG` ]
+		then
+		    INTER_FRAME_DELTA=$INTER_FRAME_STEP_1
+		else
+		    INTER_FRAME_DELTA=$INTER_FRAME_STEP_2
+		fi
+	    fi
+	    
+	    INTER_FRAME_TIME=`$ECHO_PROG "scale = 4; ${INTER_FRAME_TIME} +0.010" | $BC_PROG`
+
+	    # Un drop frames?
+	    if [ $TRUE -eq `$ECHO_PROG "${INTER_FRAME_TIME} > ${UN_DROP_FRAME}"\
+ | $BC_PROG` ] and [ $FRAME_SKIP -ne "0" ]
+	    then
+		$FRAME_SKIP=$(($FRAME_SKIP-1))
+	    fi
 	fi
     fi
 }
@@ -82,21 +152,23 @@ ${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
 	    adjustPerf "$OLD_FRAME_FPS_MEASURE_TIME" \
 		       "$NEW_FRAME_FPS_MEASURE_TIME"
 	fi
-	
-	$SLEEP_PROG $INTER_FRAME_TIME
-	# $SLEEP_PROG 0.032
 
-        $FEH_PROG --bg-max $CURRENT_FRAME_PATH
+	# echo "operator"
+	if [ "$FRAME_SKIP" -eq "0" ]
+	then
+	    $FEH_PROG --bg-max $CURRENT_FRAME_PATH
+	else
+	    if [ `expr $FRAME_INDEX % $FRAME_SKIP` -ne "0" ]
+	    then
+		$FEH_PROG --bg-max $CURRENT_FRAME_PATH
+	    fi
+	fi
 	
 	CURRENT_FRAME_PATH="${FRAME_DESTINATION_DIR}${FRAME_FILE_NAME_PREFIX}\
 ${FRAME_INDEX}${FRAME_FILE_NAME_POSTFIX}"
-	FRAME_INDEX=`expr $FRAME_INDEX + $FRAME_SKIP + 1`
+	FRAME_INDEX=`expr $FRAME_INDEX + 1`
 
-	# if [ "$FRAME_INDEX" -gt "386" ]
-	if [ "$FRAME_INDEX" -gt "3072" ]
-	then
-	    exit
-	fi	
+	$SLEEP_PROG $INTER_FRAME_TIME
     done
 }
 
